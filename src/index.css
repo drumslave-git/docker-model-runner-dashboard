@@ -1,3 +1,5 @@
+@config "../tailwind.config.ts";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,8 +12,17 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root.dark {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
+  background: rgb(248 250 252);
+}
+
+.dark body {
+  background: rgb(2 6 23);
 }
 
 button,

@@ -2,12 +2,14 @@ import {
   Activity,
   Box,
   CheckCircle2,
-  ChevronDown,
   Cpu,
   Download,
+  Monitor,
+  Moon,
   Power,
   RefreshCcw,
   Server,
+  Sun,
   Trash2,
   TriangleAlert,
   X
@@ -17,6 +19,30 @@ import { deleteModel, getLoadedModels, getModels, getStatus, pullModel, unloadMo
 import type { ApiStatus, DmrBackend, DmrModel, LoadedModel } from './types';
 
 const suggestedModels = ['ai/smollm2', 'ai/llama3.2', 'ai/qwen2.5-coder'];
+const themeOptions = [
+  { value: 'system', label: 'System', icon: Monitor },
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon }
+] as const;
+
+type Theme = (typeof themeOptions)[number]['value'];
+const themeStorageKey = 'dmr-theme';
+
+function getInitialTheme(): Theme {
+  try {
+    const savedTheme = localStorage.getItem(themeStorageKey) ?? localStorage.getItem('theme');
+    return savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function applyDocumentTheme(theme: Theme, systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  const dark = theme === 'dark' || (theme === 'system' && systemDark);
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+}
 
 function classNames(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(' ');
@@ -36,12 +62,49 @@ function percentageFromMessage(message: string) {
   return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : undefined;
 }
 
+function ThemeToggle({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
+  return (
+    <div
+      aria-label="Color theme"
+      className="inline-flex rounded-md border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+      role="radiogroup"
+    >
+      {themeOptions.map((option) => {
+        const Icon = option.icon;
+        const active = theme === option.value;
+
+        return (
+          <button
+            aria-checked={active}
+            aria-label={`Use ${option.label.toLowerCase()} theme`}
+            className={classNames(
+              'inline-flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium transition sm:px-2.5',
+              active
+                ? 'bg-slate-100 text-slate-950 shadow-sm dark:bg-slate-700 dark:text-white'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+            )}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            role="radio"
+            type="button"
+          >
+            <Icon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function StatusPill({ ok }: { ok: boolean }) {
   return (
     <span
       className={classNames(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-        ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+        ok
+          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+          : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
       )}
     >
       {ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <TriangleAlert className="h-3.5 w-3.5" />}
@@ -62,14 +125,14 @@ function MetricCard({
   detail: string;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-panel">
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-panel dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-2 truncate text-2xl font-semibold text-slate-950">{value}</p>
-          <p className="mt-1 truncate text-sm text-slate-500">{detail}</p>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
+          <p className="mt-2 truncate text-2xl font-semibold text-slate-950 dark:text-slate-50">{value}</p>
+          <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">{detail}</p>
         </div>
-        <div className="shrink-0 rounded-md bg-cyan-50 p-2 text-cyan-700">{icon}</div>
+        <div className="shrink-0 rounded-md bg-cyan-50 p-2 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">{icon}</div>
       </div>
     </section>
   );
@@ -80,10 +143,12 @@ function BooleanPill({ active, activeLabel, inactiveLabel }: { active: boolean; 
     <span
       className={classNames(
         'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-        active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+        active
+          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+          : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
       )}
     >
-      <span className={classNames('h-1.5 w-1.5 rounded-full', active ? 'bg-emerald-500' : 'bg-slate-400')} />
+      <span className={classNames('h-1.5 w-1.5 rounded-full', active ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-500')} />
       {active ? activeLabel : inactiveLabel}
     </span>
   );
@@ -91,9 +156,9 @@ function BooleanPill({ active, activeLabel, inactiveLabel }: { active: boolean; 
 
 function BackendRow({ backend }: { backend: DmrBackend }) {
   return (
-    <tr className="border-b border-slate-100 last:border-0">
+    <tr className="border-b border-slate-100 last:border-0 dark:border-slate-800">
       <td className="px-4 py-3">
-        <p className="font-medium text-slate-950">{backend.name}</p>
+        <p className="font-medium text-slate-950 dark:text-slate-50">{backend.name}</p>
       </td>
       <td className="px-4 py-3">
         <BooleanPill active={backend.installed} activeLabel="Installed" inactiveLabel="Not installed" />
@@ -115,18 +180,18 @@ function LoadedModelRow({
   onUnload: () => void;
 }) {
   return (
-    <tr className="border-b border-slate-100 last:border-0">
+    <tr className="border-b border-slate-100 last:border-0 dark:border-slate-800">
       <td className="px-4 py-3">
-        <p className="truncate font-medium text-slate-950" title={model.displayName}>
+        <p className="truncate font-medium text-slate-950 dark:text-slate-50" title={model.displayName}>
           {model.displayName}
         </p>
-        <p className="mt-0.5 text-xs text-slate-500">{model.mode ?? 'Mode not reported'}</p>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{model.mode ?? 'Mode not reported'}</p>
       </td>
-      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.backend)}</td>
-      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.until)}</td>
+      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{valueOrDash(model.backend)}</td>
+      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{valueOrDash(model.until)}</td>
       <td className="px-4 py-3 text-right">
         <button
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:border-rose-800 dark:hover:bg-rose-950 dark:hover:text-rose-300"
           disabled={busy}
           onClick={onUnload}
           title={`Unload ${model.displayName}`}
@@ -153,25 +218,25 @@ function ModelRow({
   const digestOnly = model.id.startsWith('sha256:');
 
   return (
-    <tr className="border-b border-slate-100">
+    <tr className="border-b border-slate-100 dark:border-slate-800">
       <td className="px-4 py-3">
         <div className="flex min-w-0 flex-col">
-          <span className="truncate font-medium text-slate-950" title={model.displayName}>
+          <span className="truncate font-medium text-slate-950 dark:text-slate-50" title={model.displayName}>
             {model.displayName}
           </span>
-          <span className="truncate text-xs text-slate-500" title={model.digest}>
+          <span className="truncate text-xs text-slate-500 dark:text-slate-400" title={model.digest}>
             {digestOnly ? 'DMR CLI did not return a model reference' : shortDigest(model.digest)}
           </span>
         </div>
       </td>
-      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.parameters)}</td>
-      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.quantization)}</td>
-      <td className="hidden px-4 py-3 text-sm text-slate-600 md:table-cell">{valueOrDash(model.architecture)}</td>
-      <td className="hidden px-4 py-3 text-sm text-slate-600 lg:table-cell">{valueOrDash(model.modified)}</td>
-      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.size)}</td>
+      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{valueOrDash(model.parameters)}</td>
+      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{valueOrDash(model.quantization)}</td>
+      <td className="hidden px-4 py-3 text-sm text-slate-600 dark:text-slate-300 md:table-cell">{valueOrDash(model.architecture)}</td>
+      <td className="hidden px-4 py-3 text-sm text-slate-600 dark:text-slate-300 lg:table-cell">{valueOrDash(model.modified)}</td>
+      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{valueOrDash(model.size)}</td>
       <td className="px-4 py-3 text-right">
         <button
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-400 dark:hover:border-rose-800 dark:hover:bg-rose-950 dark:hover:text-rose-300"
           disabled={busy || !canDelete}
           onClick={onDelete}
           title={canDelete ? `Delete ${model.displayName}` : 'Cannot delete: DMR only returned a digest'}
@@ -185,6 +250,7 @@ function ModelRow({
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [status, setStatus] = useState<ApiStatus | undefined>();
   const [models, setModels] = useState<DmrModel[]>([]);
   const [loadedModels, setLoadedModels] = useState<LoadedModel[]>([]);
@@ -199,6 +265,26 @@ export default function App() {
   const modelRefs = useMemo(() => models.filter((model) => !model.id.startsWith('sha256:')).length, [models]);
   const installedBackends = status?.backends.filter((backend) => backend.installed).length ?? 0;
   const runningBackends = status?.backends.filter((backend) => backend.running).length ?? 0;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyTheme = () => applyDocumentTheme(theme, mediaQuery.matches);
+
+    try {
+      localStorage.setItem(themeStorageKey, theme);
+      localStorage.removeItem('theme');
+    } catch {
+      // The theme still works for this session when storage is unavailable.
+    }
+    applyTheme();
+    mediaQuery.addEventListener('change', applyTheme);
+    return () => mediaQuery.removeEventListener('change', applyTheme);
+  }, [theme]);
+
+  function handleThemeChange(nextTheme: Theme) {
+    applyDocumentTheme(nextTheme);
+    setTheme(nextTheme);
+  }
 
   async function refresh() {
     setError('');
@@ -302,22 +388,23 @@ export default function App() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-950">
+    <main className="min-h-screen bg-slate-50 text-slate-950 transition-colors dark:bg-slate-950 dark:text-slate-50">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-cyan-600 text-white shadow-panel">
               <Server className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-normal text-slate-950">DMR Dashboard</h1>
-              <p className="text-sm text-slate-500">{status?.cli ?? 'docker model'}</p>
+              <h1 className="text-2xl font-semibold tracking-normal text-slate-950 dark:text-slate-50">DMR Dashboard</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{status?.cli ?? 'docker model'}</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <ThemeToggle onChange={handleThemeChange} theme={theme} />
             <StatusPill ok={Boolean(status?.ok)} />
             <button
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-cyan-200 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-cyan-200 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-cyan-800 dark:hover:bg-cyan-950"
               disabled={loading}
               onClick={() => void refresh()}
               type="button"
@@ -329,7 +416,7 @@ export default function App() {
         </header>
 
         {error ? (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</div>
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-3">
@@ -354,15 +441,15 @@ export default function App() {
         </section>
 
         <section className="grid gap-6 xl:grid-cols-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-panel">
-            <div className="border-b border-slate-200 p-4">
-              <h2 className="text-base font-semibold text-slate-950">Backends</h2>
-              <p className="text-sm text-slate-500">Installed and running inference engines</p>
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+            <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+              <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50">Backends</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Installed and running inference engines</p>
             </div>
             {status?.backends.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[520px]">
-                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
                     <tr>
                       <th className="w-[52%] px-4 py-3 font-semibold">Backend</th>
                       <th className="px-4 py-3 font-semibold">Installed</th>
@@ -374,21 +461,21 @@ export default function App() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-                <Box className="h-9 w-9 text-slate-300" />
-                <p className="text-sm text-slate-500">No backend status reported.</p>
+                <Box className="h-9 w-9 text-slate-300 dark:text-slate-600" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">No backend status reported.</p>
               </div>
             )}
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-panel">
-            <div className="border-b border-slate-200 p-4">
-              <h2 className="text-base font-semibold text-slate-950">Loaded models</h2>
-              <p className="text-sm text-slate-500">Models currently held in runner memory</p>
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+            <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+              <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50">Loaded models</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Models currently held in runner memory</p>
             </div>
             {loadedModels.length ? (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px]">
-                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
                     <tr>
                       <th className="w-[34%] px-4 py-3 font-semibold">Model</th>
                       <th className="px-4 py-3 font-semibold">Backend</th>
@@ -413,31 +500,30 @@ export default function App() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-                <Power className="h-9 w-9 text-slate-300" />
-                <p className="font-medium text-slate-900">No models loaded</p>
-                <p className="text-sm text-slate-500">Models appear here while they are active in memory.</p>
+                <Power className="h-9 w-9 text-slate-300 dark:text-slate-600" />
+                <p className="font-medium text-slate-900 dark:text-slate-100">No models loaded</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Models appear here while they are active in memory.</p>
               </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white shadow-panel">
-          <div className="flex flex-col gap-4 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+        <section className="rounded-lg border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <div className="flex flex-col gap-4 border-b border-slate-200 p-4 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-950">Models</h2>
-              <p className="text-sm text-slate-500">Local DMR model inventory</p>
+              <h2 className="text-base font-semibold text-slate-950 dark:text-slate-50">Models</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Local DMR model inventory</p>
             </div>
             <form className="flex flex-col gap-2 sm:flex-row" onSubmit={handlePull}>
-              <div className="relative">
+              <div>
                 <input
-                  className="h-10 w-full min-w-64 rounded-md border border-slate-200 bg-white px-3 pr-9 text-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="h-10 w-full min-w-64 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-cyan-500 dark:focus:ring-cyan-950"
                   list="suggested-models"
                   disabled={busyAction === 'pull'}
                   onChange={(event) => setModelInput(event.target.value)}
                   placeholder="ai/smollm2"
                   value={modelInput}
                 />
-                <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-400" />
                 <datalist id="suggested-models">
                   {suggestedModels.map((model) => (
                     <option key={model} value={model} />
@@ -456,11 +542,11 @@ export default function App() {
           </div>
 
           {pullState !== 'idle' ? (
-            <div className="border-b border-slate-200 bg-slate-50/70 p-4" aria-live="polite">
+            <div className="border-b border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/50" aria-live="polite">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Pull activity</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Pull activity</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {pullState === 'running'
                       ? `Downloading ${modelInput.trim()} with Docker Model Runner`
                       : pullState === 'success'
@@ -472,9 +558,9 @@ export default function App() {
                   <span
                     className={classNames(
                       'rounded-full px-2.5 py-1 text-xs font-medium',
-                      pullState === 'running' && 'bg-cyan-100 text-cyan-700',
-                      pullState === 'success' && 'bg-emerald-100 text-emerald-700',
-                      pullState === 'error' && 'bg-rose-100 text-rose-700'
+                      pullState === 'running' && 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300',
+                      pullState === 'success' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+                      pullState === 'error' && 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                     )}
                   >
                     {pullState === 'running'
@@ -488,7 +574,7 @@ export default function App() {
                   {pullState !== 'running' ? (
                     <button
                       aria-label="Dismiss pull activity"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                       onClick={() => {
                         setPullState('idle');
                         setPullMessages([]);
@@ -503,7 +589,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                 <div
                   className={classNames(
                     'h-full rounded-full transition-all duration-300',
@@ -514,7 +600,7 @@ export default function App() {
                 />
               </div>
 
-              <div className="mt-3 max-h-44 overflow-y-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-200">
+              <div className="mt-3 max-h-44 overflow-y-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-200 dark:border dark:border-slate-800">
                 {pullMessages.map((message, index) => (
                   <div key={`${index}:${message}`}>{message}</div>
                 ))}
@@ -524,7 +610,7 @@ export default function App() {
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] table-fixed">
-              <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
                 <tr>
                   <th className="w-[34%] px-4 py-3 font-semibold">Model</th>
                   <th className="w-[14%] px-4 py-3 font-semibold">Parameters</th>
@@ -550,10 +636,10 @@ export default function App() {
 
           {!models.length ? (
             <div className="flex min-h-48 flex-col items-center justify-center gap-3 px-4 py-10 text-center">
-              <Cpu className="h-10 w-10 text-slate-300" />
+              <Cpu className="h-10 w-10 text-slate-300 dark:text-slate-600" />
               <div>
-                <p className="font-medium text-slate-900">No local models found</p>
-                <p className="text-sm text-slate-500">Pull a model to populate this table.</p>
+                <p className="font-medium text-slate-900 dark:text-slate-100">No local models found</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Pull a model to populate this table.</p>
               </div>
             </div>
           ) : null}
