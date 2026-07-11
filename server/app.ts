@@ -187,6 +187,10 @@ export function createDmrApp(): express.Express {
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
 
+  app.get('/healthz', (_request, response) => {
+    response.json({ ok: true });
+  });
+
   app.get('/api/status', async (_request, response) => {
     const startedAt = performance.now();
 
@@ -375,6 +379,15 @@ export function createDmrApp(): express.Express {
       handleError(response, error);
     }
   });
+
+  if (process.env.NODE_ENV === 'production') {
+    const staticPath = resolve(process.cwd(), 'dist');
+
+    app.use(express.static(staticPath));
+    app.get('*', (_request, response) => {
+      response.sendFile(resolve(staticPath, 'index.html'));
+    });
+  }
 
   return app;
 }

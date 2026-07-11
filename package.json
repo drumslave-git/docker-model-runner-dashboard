@@ -7,8 +7,10 @@
     "dev": "vite",
     "dev:web": "vite",
     "dev:api": "tsx watch server/index.ts",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:server",
+    "build:server": "tsc -p tsconfig.server.build.json",
     "preview": "vite preview",
+    "start": "node server-dist/index.js",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {

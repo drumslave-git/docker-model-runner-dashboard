@@ -1,0 +1,17 @@
+services:
+  dashboard:
+    build:
+      context: .
+    image: docker-model-runner-dashboard:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8787}:8787"
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      DMR_CLI_PATH: docker
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
