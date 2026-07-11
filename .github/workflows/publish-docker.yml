@@ -1,0 +1,131 @@
+name: Publish Docker image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect and validate version change
+        id: version
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          previous=""
+
+          if [[ ! "$BEFORE_SHA" =~ ^0+$ ]] && git cat-file -e "$BEFORE_SHA:package.json" 2>/dev/null; then
+            previous="$(git show "$BEFORE_SHA:package.json" | node -e "let data=''; process.stdin.on('data', chunk => data += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(data).version));")"
+          fi
+
+          if [[ "$version" == "$previous" ]]; then
+            npm run version:check
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "package.json changed without a version change; skipping publication."
+            exit 0
+          fi
+
+          if [[ -n "$previous" ]]; then
+            npm run version:check -- --previous "$previous"
+          else
+            npm run version:check
+          fi
+
+          core="${version%%[-+]*}"
+          without_build="${version%%+*}"
+          major="${core%%.*}"
+          remainder="${core#*.}"
+          minor="${remainder%%.*}"
+          docker_tag="${version/+/_}"
+          prerelease=false
+          if [[ "$without_build" == *-* ]]; then
+            prerelease=true
+          fi
+
+          {
+            echo "changed=true"
+            echo "version=$version"
+            echo "docker_tag=$docker_tag"
+            echo "major=$major"
+            echo "minor=$minor"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Docker tags
+        if: steps.version.outputs.changed == 'true'
+        id: image
+        env:
+          DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_TAG: ${{ steps.version.outputs.docker_tag }}
+          MAJOR: ${{ steps.version.outputs.major }}
+          MINOR: ${{ steps.version.outputs.minor }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          repository="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/docker-model-runner-dashboard}"
+          if [[ -z "$DOCKERHUB_USERNAME" ]]; then
+            echo "The DOCKERHUB_USERNAME repository secret is required." >&2
+            exit 1
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "$repository:$DOCKER_TAG"
+            if [[ "$PRERELEASE" == "false" ]]; then
+              echo "$repository:$MAJOR.$MINOR"
+              echo "$repository:$MAJOR"
+              echo "$repository:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and publish
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=Docker Model Runner Dashboard
+            org.opencontainers.image.description=Web dashboard for Docker Model Runner
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

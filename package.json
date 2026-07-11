@@ -11,7 +11,11 @@
     "build:server": "tsc -p tsconfig.server.build.json",
     "preview": "vite preview",
     "start": "node server-dist/index.js",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "version:check": "node scripts/check-version.mjs",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",

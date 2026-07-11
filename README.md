@@ -61,3 +61,31 @@ npm run dev
 
 The Vite development server is available at <http://localhost:5300> and mounts
 the API middleware in the same process.
+
+## Versions and Docker Hub releases
+
+The `version` in `package.json` is the source of truth and follows SemVer. Use
+one of these commands to update both `package.json` and `package-lock.json`:
+
+```sh
+npm run version:patch
+npm run version:minor
+npm run version:major
+```
+
+Check the version and lockfile locally with `npm run version:check`.
+
+When a higher version reaches `main`, the GitHub Actions workflow publishes the
+image to Docker Hub. Stable releases are tagged with the full version, minor
+line, major line, and `latest` (for example, `1.4.2`, `1.4`, `1`, and `latest`).
+Prereleases such as `2.0.0-beta.1` receive only the exact prerelease tag.
+
+Configure these GitHub repository secrets before the first release:
+
+- `DOCKERHUB_USERNAME`: Docker Hub username
+- `DOCKERHUB_TOKEN`: Docker Hub access token
+
+By default the image is published as
+`DOCKERHUB_USERNAME/docker-model-runner-dashboard`. To use another Docker Hub
+repository, set the optional GitHub repository variable
+`DOCKERHUB_REPOSITORY` to its full `namespace/name`.
