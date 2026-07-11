@@ -2,6 +2,9 @@
 
 A web dashboard for inspecting and managing models in Docker Model Runner.
 
+The dashboard can also search the Docker Hub model catalog, list every available
+tag for a selected model, and pull a specific variant with streamed progress.
+
 ## Run with Docker Compose
 
 Prerequisites:

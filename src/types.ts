@@ -40,3 +40,22 @@ export type DmrModel = {
   architecture?: string;
   raw: unknown;
 };
+
+export type CatalogModel = {
+  name: string;
+  description: string;
+  downloads: number;
+  stars: number;
+  source: string;
+  official: boolean;
+  updatedAt?: string;
+  backend?: string;
+  size?: number;
+};
+
+export type CatalogTag = {
+  name: string;
+  size?: number;
+  updatedAt?: string;
+  digest?: string;
+};

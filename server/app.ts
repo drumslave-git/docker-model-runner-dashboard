@@ -108,6 +108,116 @@ function parseJsonOutput(output: string) {
   }
 }
 
+function asString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function asNumber(value: unknown) {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function normalizeCatalogModels(payload: unknown) {
+  const list = Array.isArray(payload) ? payload : [];
+
+  return list.flatMap((rawModel) => {
+    const model = asRecord(rawModel);
+    const name = asString(model.Name ?? model.name);
+
+    if (!name) {
+      return [];
+    }
+
+    return [{
+      name,
+      description: asString(model.Description ?? model.description) ?? 'No description available',
+      downloads: asNumber(model.Downloads ?? model.downloads) ?? 0,
+      stars: asNumber(model.Stars ?? model.stars) ?? 0,
+      source: asString(model.Source ?? model.source) ?? 'Docker Hub',
+      official: model.Official === true || model.official === true,
+      updatedAt: asString(model.UpdatedAt ?? model.updatedAt ?? model.updated_at),
+      backend: asString(model.Backend ?? model.backend),
+      size: asNumber(model.Size ?? model.size)
+    }];
+  });
+}
+
+function normalizeCatalogTags(payload: unknown) {
+  const results = asRecord(payload).results;
+  const list = Array.isArray(results) ? results : [];
+
+  return list.flatMap((rawTag) => {
+    const tag = asRecord(rawTag);
+    const name = asString(tag.name);
+
+    if (!name) {
+      return [];
+    }
+
+    const images = Array.isArray(tag.images) ? tag.images : [];
+    const firstImage = asRecord(images[0]);
+
+    return [{
+      name,
+      size: asNumber(tag.full_size ?? firstImage.size),
+      updatedAt: asString(tag.last_updated ?? tag.tag_last_pushed),
+      digest: asString(tag.digest ?? firstImage.digest)
+    }];
+  });
+}
+
+async function fetchCatalogTags(namespace: string, repository: string) {
+  const tags: ReturnType<typeof normalizeCatalogTags> = [];
+  let page = 1;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const url = new URL(
+      `/v2/namespaces/${encodeURIComponent(namespace)}/repositories/${encodeURIComponent(repository)}/tags`,
+      'https://hub.docker.com'
+    );
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('page_size', '100');
+
+    const hubResponse = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'docker-model-runner-dashboard' },
+      signal: AbortSignal.timeout(30000)
+    });
+
+    if (!hubResponse.ok) {
+      throw new DmrCliError(
+        'Unable to load model tags from Docker Hub',
+        hubResponse.status === 404 ? `${namespace}/${repository} was not found` : `Docker Hub returned HTTP ${hubResponse.status}`
+      );
+    }
+
+    const payload = await hubResponse.json() as unknown;
+    tags.push(...normalizeCatalogTags(payload));
+    hasNextPage = Boolean(asString(asRecord(payload).next));
+    page += 1;
+  }
+
+  return tags;
+}
+
+async function fetchCatalogDescription(namespace: string, repository: string) {
+  const url = new URL(
+    `/v2/namespaces/${encodeURIComponent(namespace)}/repositories/${encodeURIComponent(repository)}`,
+    'https://hub.docker.com'
+  );
+  const hubResponse = await fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': 'docker-model-runner-dashboard' },
+    signal: AbortSignal.timeout(30000)
+  });
+
+  if (!hubResponse.ok) {
+    return undefined;
+  }
+
+  const repositoryDetails = asRecord(await hubResponse.json() as unknown);
+  return asString(repositoryDetails.description);
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): JsonRecord {
@@ -257,6 +367,45 @@ export function createDmrApp(): express.Express {
     try {
       const result = await runDmrCommand(['list', '--json'], { timeoutMs: 60000 });
       response.json({ source: 'cli', models: parseJsonOutput(result.stdout) });
+    } catch (error) {
+      handleError(response, error);
+    }
+  });
+
+  app.get('/api/catalog/search', async (request, response) => {
+    const query = String(request.query.q ?? '').trim();
+
+    if (!query) {
+      response.status(400).json({ error: 'Search query is required' });
+      return;
+    }
+
+    try {
+      const result = await runDmrCommand(
+        ['search', '--source=dockerhub', '--limit=32', '--json', '--', query],
+        { timeoutMs: 60000 }
+      );
+      response.json({ source: 'docker-model-cli', models: normalizeCatalogModels(parseJsonOutput(result.stdout)) });
+    } catch (error) {
+      handleError(response, error);
+    }
+  });
+
+  app.get('/api/catalog/:namespace/:name/tags', async (request, response) => {
+    const { namespace, name } = request.params;
+    const validPart = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/i;
+
+    if (!validPart.test(namespace) || !validPart.test(name)) {
+      response.status(400).json({ error: 'Invalid Docker Hub model reference' });
+      return;
+    }
+
+    try {
+      const [tags, description] = await Promise.all([
+        fetchCatalogTags(namespace, name),
+        fetchCatalogDescription(namespace, name)
+      ]);
+      response.json({ source: 'docker-hub', model: `${namespace}/${name}`, description, tags });
     } catch (error) {
       handleError(response, error);
     }

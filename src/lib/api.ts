@@ -1,4 +1,4 @@
-import type { ApiStatus, DmrModel, LoadedModel } from '../types';
+import type { ApiStatus, CatalogModel, CatalogTag, DmrModel, LoadedModel } from '../types';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -182,6 +182,24 @@ export async function getModels() {
 export async function getLoadedModels() {
   const response = await request<{ source: string; models: LoadedModel[] }>('/api/loaded-models');
   return response.models;
+}
+
+export async function searchCatalog(query: string) {
+  const params = new URLSearchParams({ q: query });
+  const response = await request<{ models: CatalogModel[] }>(`/api/catalog/search?${params}`);
+  return response.models;
+}
+
+export async function getCatalogTags(model: string) {
+  const [namespace, name] = model.split(/\/(.+)/);
+
+  if (!namespace || !name) {
+    throw new Error('Catalog model must include a namespace');
+  }
+
+  return request<{ tags: CatalogTag[]; description?: string }>(
+    `/api/catalog/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/tags`
+  );
 }
 
 export async function pullModel(model: string, onProgress: (event: PullProgressEvent) => void) {
