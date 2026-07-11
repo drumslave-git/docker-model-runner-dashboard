@@ -1,10 +1,11 @@
 import {
   Activity,
+  Box,
   CheckCircle2,
   ChevronDown,
   Cpu,
   Download,
-  HardDrive,
+  Power,
   RefreshCcw,
   Server,
   Trash2,
@@ -12,8 +13,8 @@ import {
   X
 } from 'lucide-react';
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
-import { deleteModel, getModels, getStatus, pullModel } from './lib/api';
-import type { ApiStatus, DmrModel } from './types';
+import { deleteModel, getLoadedModels, getModels, getStatus, pullModel, unloadModel } from './lib/api';
+import type { ApiStatus, DmrBackend, DmrModel, LoadedModel } from './types';
 
 const suggestedModels = ['ai/smollm2', 'ai/llama3.2', 'ai/qwen2.5-coder'];
 
@@ -74,6 +75,74 @@ function MetricCard({
   );
 }
 
+function BooleanPill({ active, activeLabel, inactiveLabel }: { active: boolean; activeLabel: string; inactiveLabel: string }) {
+  return (
+    <span
+      className={classNames(
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
+        active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+      )}
+    >
+      <span className={classNames('h-1.5 w-1.5 rounded-full', active ? 'bg-emerald-500' : 'bg-slate-400')} />
+      {active ? activeLabel : inactiveLabel}
+    </span>
+  );
+}
+
+function BackendRow({ backend }: { backend: DmrBackend }) {
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="px-4 py-3">
+        <p className="font-medium text-slate-950">{backend.name}</p>
+        <p className="mt-0.5 max-w-md truncate text-xs text-slate-500" title={backend.detail}>
+          {backend.detail}
+        </p>
+      </td>
+      <td className="px-4 py-3">
+        <BooleanPill active={backend.installed} activeLabel="Installed" inactiveLabel="Not installed" />
+      </td>
+      <td className="px-4 py-3">
+        <BooleanPill active={backend.running} activeLabel="Running" inactiveLabel="Stopped" />
+      </td>
+    </tr>
+  );
+}
+
+function LoadedModelRow({
+  model,
+  busy,
+  onUnload
+}: {
+  model: LoadedModel;
+  busy: boolean;
+  onUnload: () => void;
+}) {
+  return (
+    <tr className="border-b border-slate-100 last:border-0">
+      <td className="px-4 py-3">
+        <p className="truncate font-medium text-slate-950" title={model.displayName}>
+          {model.displayName}
+        </p>
+        <p className="mt-0.5 text-xs text-slate-500">{model.mode ?? 'Mode not reported'}</p>
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.backend)}</td>
+      <td className="px-4 py-3 text-sm text-slate-600">{valueOrDash(model.until)}</td>
+      <td className="px-4 py-3 text-right">
+        <button
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={busy}
+          onClick={onUnload}
+          title={`Unload ${model.displayName}`}
+          type="button"
+        >
+          <Power className="h-4 w-4" />
+          {busy ? 'Unloading...' : 'Unload'}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 function ModelRow({
   model,
   busy,
@@ -121,6 +190,7 @@ function ModelRow({
 export default function App() {
   const [status, setStatus] = useState<ApiStatus | undefined>();
   const [models, setModels] = useState<DmrModel[]>([]);
+  const [loadedModels, setLoadedModels] = useState<LoadedModel[]>([]);
   const [modelInput, setModelInput] = useState(suggestedModels[0]);
   const [error, setError] = useState('');
   const [busyAction, setBusyAction] = useState('');
@@ -130,16 +200,22 @@ export default function App() {
   const [pullState, setPullState] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
 
   const modelRefs = useMemo(() => models.filter((model) => !model.id.startsWith('sha256:')).length, [models]);
-  const reportedSizes = useMemo(() => models.filter((model) => Boolean(model.size)).length, [models]);
+  const installedBackends = status?.backends.filter((backend) => backend.installed).length ?? 0;
+  const runningBackends = status?.backends.filter((backend) => backend.running).length ?? 0;
 
   async function refresh() {
     setError('');
     setLoading(true);
 
     try {
-      const [nextStatus, nextModels] = await Promise.all([getStatus(), getModels()]);
+      const [nextStatus, nextModels, nextLoadedModels] = await Promise.all([
+        getStatus(),
+        getModels(),
+        getLoadedModels()
+      ]);
       setStatus(nextStatus);
       setModels(nextModels);
+      setLoadedModels(nextLoadedModels);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to refresh dashboard');
     } finally {
@@ -211,6 +287,23 @@ export default function App() {
     }
   }
 
+  async function handleUnload(model: LoadedModel) {
+    const action = `unload:${model.id}:${model.backend ?? ''}`;
+    setError('');
+    setBusyAction(action);
+
+    try {
+      await unloadModel(model.id, model.backend);
+      setLoadedModels((current) =>
+        current.filter((item) => item.id !== model.id || item.backend !== model.backend)
+      );
+    } catch (unloadError) {
+      setError(unloadError instanceof Error ? unloadError.message : 'Unable to unload model');
+    } finally {
+      setBusyAction('');
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
@@ -256,11 +349,79 @@ export default function App() {
             value={String(models.length)}
           />
           <MetricCard
-            detail={`${reportedSizes} models report size`}
-            icon={<HardDrive className="h-5 w-5" />}
-            label="Storage"
-            value={reportedSizes ? 'Available' : 'Not reported'}
+            detail={`${installedBackends} installed`}
+            icon={<Box className="h-5 w-5" />}
+            label="Backends"
+            value={`${runningBackends} running`}
           />
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-panel">
+            <div className="border-b border-slate-200 p-4">
+              <h2 className="text-base font-semibold text-slate-950">Backends</h2>
+              <p className="text-sm text-slate-500">Installed and running inference engines</p>
+            </div>
+            {status?.backends.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px]">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="w-[52%] px-4 py-3 font-semibold">Backend</th>
+                      <th className="px-4 py-3 font-semibold">Installed</th>
+                      <th className="px-4 py-3 font-semibold">Running</th>
+                    </tr>
+                  </thead>
+                  <tbody>{status.backends.map((backend) => <BackendRow backend={backend} key={backend.name} />)}</tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                <Box className="h-9 w-9 text-slate-300" />
+                <p className="text-sm text-slate-500">No backend status reported.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-panel">
+            <div className="border-b border-slate-200 p-4">
+              <h2 className="text-base font-semibold text-slate-950">Loaded models</h2>
+              <p className="text-sm text-slate-500">Models currently held in runner memory</p>
+            </div>
+            {loadedModels.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px]">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="w-[34%] px-4 py-3 font-semibold">Model</th>
+                      <th className="px-4 py-3 font-semibold">Backend</th>
+                      <th className="px-4 py-3 font-semibold">Unload in</th>
+                      <th className="w-32 px-4 py-3 text-right font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadedModels.map((model) => {
+                      const action = `unload:${model.id}:${model.backend ?? ''}`;
+                      return (
+                        <LoadedModelRow
+                          busy={busyAction === action}
+                          key={`${model.id}:${model.backend ?? ''}`}
+                          model={model}
+                          onUnload={() => void handleUnload(model)}
+                        />
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                <Power className="h-9 w-9 text-slate-300" />
+                <p className="font-medium text-slate-900">No models loaded</p>
+                <p className="text-sm text-slate-500">Models appear here while they are active in memory.</p>
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white shadow-panel">

@@ -108,6 +108,53 @@ function parseJsonOutput(output: string) {
   }
 }
 
+type JsonRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {};
+}
+
+function normalizeBackends(value: unknown) {
+  return Object.entries(asRecord(value))
+    .map(([name, rawDetail]) => {
+      const detail = String(rawDetail ?? '').trim() || 'Unknown';
+      const installed = !/^not installed\b/i.test(detail);
+      const running = /^running\b/i.test(detail);
+
+      return { name, installed, running, detail };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function parseLoadedModels(output: string) {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) {
+    return [];
+  }
+
+  return lines.slice(1).flatMap((line) => {
+    const [displayName, backend, mode, ...untilParts] = line.split(/\s{2,}/).map((value) => value.trim());
+
+    if (!displayName) {
+      return [];
+    }
+
+    return [
+      {
+        id: displayName,
+        displayName,
+        backend: backend || undefined,
+        mode: mode || undefined,
+        until: untilParts.join('  ') || undefined
+      }
+    ];
+  });
+}
+
 function handleError(response: express.Response, error: unknown) {
   if (error instanceof DmrCliError) {
     response.status(502).json({ error: error.message, detail: error.detail });
@@ -144,20 +191,61 @@ export function createDmrApp(): express.Express {
     const startedAt = performance.now();
 
     try {
-      const result = await runDmrCommand(['status'], { timeoutMs: 10000 });
+      const result = await runDmrCommand(['status', '--json'], { timeoutMs: 10000 });
+      const status = asRecord(parseJsonOutput(result.stdout));
+      const running = status.running === true;
       response.json({
-        ok: true,
+        ok: running,
         cli: 'docker model',
         latencyMs: Math.round(performance.now() - startedAt),
-        status: result.stdout
+        status: result.stdout,
+        running,
+        kind: typeof status.kind === 'string' ? status.kind : undefined,
+        endpoint: typeof status.endpoint === 'string' ? status.endpoint : undefined,
+        endpointHost: typeof status.endpointHost === 'string' ? status.endpointHost : undefined,
+        backends: normalizeBackends(status.backends)
       });
     } catch (error) {
       response.status(200).json({
         ok: false,
         cli: 'docker model',
         latencyMs: Math.round(performance.now() - startedAt),
+        backends: [],
         error: error instanceof DmrCliError ? error.detail : commandErrorDetail(error)
       });
+    }
+  });
+
+  app.get('/api/loaded-models', async (_request, response) => {
+    try {
+      const result = await runDmrCommand(['ps'], { timeoutMs: 30000 });
+      response.json({ source: 'cli', models: parseLoadedModels(result.stdout) });
+    } catch (error) {
+      handleError(response, error);
+    }
+  });
+
+  app.delete('/api/loaded-models', async (request, response) => {
+    const model = String(request.body?.model ?? '').trim();
+    const backend = String(request.body?.backend ?? '').trim();
+
+    if (!model) {
+      response.status(400).json({ error: 'Model is required' });
+      return;
+    }
+
+    try {
+      const args = ['unload'];
+
+      if (backend) {
+        args.push('--backend', backend);
+      }
+
+      args.push('--', model);
+      await runDmrCommand(args, { timeoutMs: 5 * 60 * 1000 });
+      response.status(204).send();
+    } catch (error) {
+      handleError(response, error);
     }
   });
 

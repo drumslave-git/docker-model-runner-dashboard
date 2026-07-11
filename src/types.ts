@@ -3,7 +3,27 @@ export type ApiStatus = {
   cli: string;
   latencyMs: number;
   status?: string;
+  running?: boolean;
+  kind?: string;
+  endpoint?: string;
+  endpointHost?: string;
+  backends: DmrBackend[];
   error?: unknown;
+};
+
+export type DmrBackend = {
+  name: string;
+  installed: boolean;
+  running: boolean;
+  detail: string;
+};
+
+export type LoadedModel = {
+  id: string;
+  displayName: string;
+  backend?: string;
+  mode?: string;
+  until?: string;
 };
 
 export type DmrModel = {

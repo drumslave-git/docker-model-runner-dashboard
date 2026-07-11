@@ -1,4 +1,4 @@
-import type { ApiStatus, DmrModel } from '../types';
+import type { ApiStatus, DmrModel, LoadedModel } from '../types';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -179,6 +179,11 @@ export async function getModels() {
   return normalizeModels(response.models);
 }
 
+export async function getLoadedModels() {
+  const response = await request<{ source: string; models: LoadedModel[] }>('/api/loaded-models');
+  return response.models;
+}
+
 export async function pullModel(model: string, onProgress: (event: PullProgressEvent) => void) {
   const response = await fetch('/api/models', {
     method: 'POST',
@@ -250,5 +255,12 @@ export async function deleteModel(model: string) {
   const [namespace, name] = model.split(/\/(.+)/);
   return request(`/api/models/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, {
     method: 'DELETE'
+  });
+}
+
+export async function unloadModel(model: string, backend?: string) {
+  return request('/api/loaded-models', {
+    method: 'DELETE',
+    body: JSON.stringify({ model, backend })
   });
 }
