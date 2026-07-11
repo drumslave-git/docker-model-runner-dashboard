@@ -94,9 +94,6 @@ function BackendRow({ backend }: { backend: DmrBackend }) {
     <tr className="border-b border-slate-100 last:border-0">
       <td className="px-4 py-3">
         <p className="font-medium text-slate-950">{backend.name}</p>
-        <p className="mt-0.5 max-w-md truncate text-xs text-slate-500" title={backend.detail}>
-          {backend.detail}
-        </p>
       </td>
       <td className="px-4 py-3">
         <BooleanPill active={backend.installed} activeLabel="Installed" inactiveLabel="Not installed" />
