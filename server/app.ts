@@ -8,7 +8,19 @@ import express from 'express';
 loadDotEnv();
 
 const execFileAsync = promisify(execFile);
-const dmrCliPath = process.env.DMR_CLI_PATH?.trim() || 'docker';
+const dmrCliPath = 'docker';
+
+// The `docker model` plugin reads its API base URL from MODEL_RUNNER_HOST. This
+// app exposes it as MODEL_RUNNER_URL and translates it for the child process.
+function dmrEnv() {
+  const modelRunnerUrl = process.env.MODEL_RUNNER_URL?.trim();
+
+  if (!modelRunnerUrl) {
+    return process.env;
+  }
+
+  return { ...process.env, MODEL_RUNNER_HOST: modelRunnerUrl };
+}
 
 type DmrCommandOptions = {
   timeoutMs?: number;
@@ -78,6 +90,7 @@ async function runDmrCommand(args: string[], options: DmrCommandOptions = {}) {
   try {
     const { stdout, stderr } = await execFileAsync(dmrCliPath, ['model', ...args], {
       encoding: 'utf8',
+      env: dmrEnv(),
       maxBuffer: 16 * 1024 * 1024,
       timeout: options.timeoutMs ?? 120000,
       windowsHide: true
@@ -428,6 +441,7 @@ export function createDmrApp(): express.Express {
     writePullEvent(response, { type: 'progress', message: `Starting docker model pull ${model}` });
 
     const child = spawn(dmrCliPath, ['model', 'pull', '--', model], {
+      env: dmrEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     });

@@ -37,18 +37,52 @@ Stop it with:
 docker compose down
 ```
 
-The Compose service mounts `/var/run/docker.sock` so the dashboard's bundled
-Docker CLI and Model Runner plugin can manage models in the host Docker engine.
-Access to this socket is equivalent to administrative access to Docker; only run
-the dashboard in an environment you trust and do not expose the selected host
-port publicly.
+## Pointing the dashboard at a Model Runner
+
+The bundled `docker model` plugin is a thin HTTP client for the Docker Model
+Runner API — every command (`ps`, `list`, `status`, `pull`) is a request to that
+API rather than a local operation. Inside a container, `localhost` is the
+container itself, so the runner has to be addressed explicitly via
+`MODEL_RUNNER_URL`. Left unset, the plugin falls back to `localhost:12434` and
+fails with `connection refused`.
+
+`MODEL_RUNNER_URL` is this dashboard's setting; the plugin itself reads
+`MODEL_RUNNER_HOST`. The server translates the former into the latter when it
+invokes the CLI, so `MODEL_RUNNER_URL` is the only one you need to set.
+
+The plugin can also auto-detect a runner through `/var/run/docker.sock`, but
+that path is unreliable across hosts: on Docker Desktop it resolves correctly,
+while on Docker Engine it resolves to `localhost:12434` and fails from inside a
+container. The dashboard therefore always sets the address explicitly and does
+not mount the socket — which also avoids handing the container administrative
+access to the Docker daemon.
+
+Compose defaults to `http://model-runner.docker.internal`, the address Docker
+Desktop exposes to containers. Set `MODEL_RUNNER_URL` in `.env` for any other
+host:
+
+```env
+# Runner running as a container: join its network and use its container name
+MODEL_RUNNER_URL=http://docker-model-runner:12434
+
+# Runner published on the Docker Engine host's port 12434. Also add
+# `host.docker.internal:host-gateway` to the service's extra_hosts.
+MODEL_RUNNER_URL=http://host.docker.internal:12434
+
+# Remote runner
+MODEL_RUNNER_URL=https://dmr.example.com
+```
+
+The dashboard can pull and remove models on whichever runner it points at, so
+run it only in an environment you trust, and put authentication in front of it
+before exposing it on a public hostname.
 
 ## Run without Compose
 
 ```sh
 docker build -t docker-model-runner-dashboard .
 docker run --rm -p 8787:8787 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e MODEL_RUNNER_URL=http://model-runner.docker.internal \
   docker-model-runner-dashboard
 ```
 

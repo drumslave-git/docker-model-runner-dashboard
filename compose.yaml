@@ -10,8 +10,4 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8787
-      DMR_CLI_PATH: docker
-    volumes:
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
+      MODEL_RUNNER_URL: ${MODEL_RUNNER_URL:-http://model-runner.docker.internal}
